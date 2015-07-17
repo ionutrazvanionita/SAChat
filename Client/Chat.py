@@ -5,7 +5,7 @@ from PyQt4 import QtGui, QtCore
 import SAClient
 import socket
 import random
-
+import Helpers
 
 class SAChat(QtGui.QWidget):
 
@@ -15,57 +15,51 @@ class SAChat(QtGui.QWidget):
         self.port = None
         self.host = None
         self.client = SAClient.SAClient(None, None,None,None,self)
+        self.holder = Helpers.WidgetHolder()
 
         self.initUI()
 
         self.username = None
         self.olduser = None
-        self.chatEdit.append("Type #help for list of available commands")
-        self.chatEdit.append("<b>IMPORTANT: </b>Before connecting to a server you must set your listening interface with #listen")
+        Helpers.printHelpInfo(self.holder.getChatWindow())
+        Helpers.printListenInfo(self.holder.getChatWindow())
 
     def display_help(self):
-        self.chatEdit.append("#help")
-        self.chatEdit.append("    #register <user> <remote_host> <remote_port> - connect to chat server")
-        self.chatEdit.append("    #clear - clears message history")
-        self.chatEdit.append("    #listen <host> <port> - set ip and andress where to receive messages")
-        self.chatEdit.append("    #logout - logs out from the current server")
+        Helpers.printHelpMessage(self.holder.getChatWindow())
 
     def parse_text(self):
-        chatStr = str(self.sendEdit.displayText())
+        chatStr = self.holder.getWrittenMessageAndClear()
         if chatStr.startswith('#help'):
             self.display_help()
-            self.sendEdit.clear()
             return
 
         if chatStr.startswith('#listen'):
             tokens = chatStr.split(' ')
             if len(tokens) != 3:
-                self.chatEdit.append("syntax: #listen <ip> <port>")
+                self.holder.writeLog("syntax: #listen <ip> <port>", self.holder.LEVEL_WARN)
                 return
 
             port = int(tokens[2])
             addr = tokens[1]
             try:
                 socket.inet_aton(addr)
-            except socket.error:
-                self.chatEdit.append("invalid ip address")
+            except socket.error, (value, message):
+                self.holder.writeLog(message, self.holder.LEVEL_ERR)
 
             self.host = addr
             self.port = port
 
             self.client.init_server(addr, port)
-            self.sendEdit.clear()
-
             return
 
         if chatStr.startswith('#register'):
             reg_tokens = chatStr.split(' ')
             if len(reg_tokens) != 4:
-                self.chatEdit.append("syntax: #register <user> <ip> <port>")
+                self.holder.writeLog("syntax: #register <user> <ip> <port>", self.holder.LEVEL_WARN)
                 return
 
             if self.username != None:
-                self.chatEdit.append("changing username to <b>" +reg_tokens[1] + "</b>")
+                self.holder.writeLog("changing username to <b>" +reg_tokens[1] + "</b>", self.holder.LEVEL_INFO)
                 mes = '#modify ' + self.username + ' ' + reg_tokens[1]
                 self.olduser = self.username
                 self.username = reg_tokens[1]
@@ -75,103 +69,96 @@ class SAChat(QtGui.QWidget):
                 self.username = reg_tokens[1]
 
 
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.connect((reg_tokens[2], int(reg_tokens[3])))
-
-            sock.sendall(mes)
-            sock.close()
-            self.sendEdit.clear()
-
             self.client.init_client(reg_tokens[2], int(reg_tokens[3]))
+            self.client.send_message(mes)
 
             return
         if chatStr.startswith('#logout'):
             self.logOut()
-            self.sendEdit.clear()
 
             return
 
         if chatStr.startswith('#clear'):
-            self.chatEdit.clear()
-            self.sendEdit.clear()
-
-            self.chatEdit.append("Type #help for list of available commands")
+            self.holder.clearChatWindow()
+            self.holder.writeLog("Type #help for list of available commands", self.holder.LEVEL_INFO)
             return
 
         if chatStr != '':
-            self.sendEdit.clear()
             if self.client.client == None:
-                self.chatEdit.append('<font color=\'red\'><b></b>You must register to a server with <b>#register</b>')
+                self.holder.writeLog('You must register to a server with <b>#register</b>', self.holder.LEVEL_WARN)
                 return
             self.client.client.send_message('#message ' + self.username + ' ' + chatStr)
-            self.chatEdit.append("<b>You : </b> " + chatStr)
+            self.holder.writeMessage("<b>You : </b> " + chatStr)
 
     def logOut(self):
         if self.client.client != None:
             self.client.client.send_message('#unregister ' + self.username)
-            self.onlineUsers.clear()
+            self.holder.clearStatusWindow()
             self.client.client = None
-            self.chatEdit.append('Succesfully logged out')
+            self.holder.writeLog('Succesfully logged out', self.holder.LEVEL_INFO)
 
         else:
-            self.chatEdit.append('Not connected to a server')
+            self.holder.writeLog('Not connected to a server', self.holder.LEVEL_INFO)
 
         self.username = None
         self.olduser  = None
 
-    def onSendClicked(self):
-		self.parse_text()
 
-    def onSendEnterPressed(self, e):
-		self.parse_text()
+    def initUI(self):
+        self.initWidgets()
+        self.initSignals()
 
-    def onAddUser(self, user):
-        color = random.randint(0, 255*255*255)
-        if color < 255*255*16:
-            color += 255*255*16
+        self.grid = QtGui.QGridLayout()
+        self.grid.setSpacing(10)
 
-        colorstr = "<font color=\"#"+ str(hex(color))[2:]+"\">"
+        self.placeWidgets()
 
-        icon = QtGui.QIcon('online.ico')
-        item = QtGui.QListWidgetItem(user)
-        item.setIcon(icon)
-        self.onlineUsers.addItem(item)
+        self.setLayout(self.grid)
 
-        self.chatEdit.append(colorstr + "user <b>" + user + "</b> is now online")
+        self.setGeometry(300, 300, 750, 500)
+        self.setWindowTitle('SAChat')
+        self.show()
 
-    def onNewMessage(self, user, line, color):
-        colorstr = "<font color=\"#"+ color[2:] + "\">"
+    def initSignals(self):
+        QtCore.QObject.connect(self.holder.getSendButton(), QtCore.SIGNAL('clicked()'), self.onSendClicked)
+        QtCore.QObject.connect(self.holder.getSendWindow(), QtCore.SIGNAL('returnPressed'), self.onSendClicked)
+        QtCore.QObject.connect(self, QtCore.SIGNAL('onAddUser(QString)'), self.onAddUser)
+        QtCore.QObject.connect(self, QtCore.SIGNAL('onNewMessage(QString, QString, QString)'), self.onNewMessage)
+        QtCore.QObject.connect(self, QtCore.SIGNAL('onOkRegister()'), self.onOkRegister)
+        QtCore.QObject.connect(self, QtCore.SIGNAL('onModify()'), self.onModify)
+        QtCore.QObject.connect(self, QtCore.SIGNAL('onUserExit(QString)'), self.onUserExit)
 
-        printstr = colorstr + '<b>' + user + ':</b><\\font> ' + line
-        self.chatEdit.append(printstr)
+        #log signals
+        QtCore.QObject.connect(self, QtCore.SIGNAL('onErr(QString)'), self.onError)
+        QtCore.QObject.connect(self, QtCore.SIGNAL('onInfo(QString)'), self.onInfo)
+        QtCore.QObject.connect(self, QtCore.SIGNAL('onWarn(QString)'), self.onWarn)
+        QtCore.QObject.connect(self, QtCore.SIGNAL('onBug(QString)'), self.onBug)
+        QtCore.QObject.connect(self, QtCore.SIGNAL('onDbg(QString)'), self.onDbg)
 
-    def onOkRegister(self):
-        self.chatEdit.append('registered with username <b>' + self.username + '<\b>')
+    def initWidgets(self):
+        self.holder.setChatWindow(QtGui.QTextEdit())
+        self.holder.setStatusWindow(QtGui.QListWidget())
+        self.holder.setSendWindow(SendLineEdit())
+        self.holder.setSendButton(QtGui.QPushButton('Send'))
 
-    def onModify(self):
-        color = random.randint(0, 255*255*255)
-        if color < 16*255*255:
-            color += 16 * 255 * 255;
-        colorstr = "<font color=\"#"+ (hex(color))[2:]+"\">"
+        self.holder.getChatWindow().setReadOnly(True)
 
-        self.chatEdit.append(colorstr + 'succesfully changed name to <b>' + self.username + '</b>')
+    def placeWidgets(self):
+        self.grid.addWidget(self.holder.getSendWindow(), 4, 0)
+        self.grid.addWidget(self.holder.getChatWindow(), 1, 0)
+        self.grid.addWidget(self.holder.getStatusWindow(), 1, 3, 1, 4)
+        self.grid.addWidget(self.holder.getSendButton(), 4, 4)
 
-        for idx in xrange(self.onlineUsers.count()):
-            item = self.onlineUsers.item(idx)
-            if item.text() == self.olduser:
-                item.setText(self.username)
+    def closeEvent(self, event):
+        if self.client.client != None:
+            self.client.client.send_message('#unregister ' + self.username)
 
+        event.accept()
 
-    def onLog(self, mes):
-        self.chatEdit.append(mes)
-
-    def onUserExit(self, user):
-        for idx in xrange(self.onlineUsers.count()):
-            item = self.onlineUsers.item(idx)
-            if item.text() == user:
-                self.onlineUsers.takeItem(idx)
-                return
-
+    """
+        handlers registered for external gui usage
+        signal the gui thread
+    """
     def display_user(self, user):
         if user == None:
             user = self.username
@@ -187,58 +174,86 @@ class SAChat(QtGui.QWidget):
     def display_success(self):
         self.emit(QtCore.SIGNAL('onOkRegister()'))
 
-    def display_log(self, mes):
-        self.emit(QtCore.SIGNAL('onLog(QString)'), mes)
-
     def display_modify(self):
         self.emit(QtCore.SIGNAL('onModify()'))
 
-    def initUI(self):
-        self.chatEdit = QtGui.QTextEdit()
+    def displayErr(self, mes):
+        self.emit(QtCore.SIGNAL('onErr(QString)'), mes)
 
-        self.onlineUsers = QtGui.QListWidget()
+    def displayWarn(self, mes):
+        self.emit(QtCore.SIGNAL('onWarn(QString)'), mes)
 
-        self.chatEdit.setReadOnly(True)
-#        self.onlineUsers.setReadOnly(True)
+    def displayInfo(self, mes):
+        self.emit(QtCore.SIGNAL('onInfo(QString)'), mes)
 
-        self.sendEdit = SendLineEdit()
+    def displayDbg(self, mes):
+        self.emit(QtCore.SIGNAL('onDbg(QString)'), mes)
 
-
-        self.sendButton = QtGui.QPushButton("Send")
-        QtCore.QObject.connect(self.sendButton, QtCore.SIGNAL('clicked()'), self.onSendClicked)
-
-        QtCore.QObject.connect(self.sendEdit, QtCore.SIGNAL('returnPressed'), self.onSendClicked)
-
-        QtCore.QObject.connect(self, QtCore.SIGNAL('onAddUser(QString)'), self.onAddUser)
-
-        QtCore.QObject.connect(self, QtCore.SIGNAL('onNewMessage(QString, QString, QString)'), self.onNewMessage)
-        QtCore.QObject.connect(self, QtCore.SIGNAL('onOkRegister()'), self.onOkRegister)
-        QtCore.QObject.connect(self, QtCore.SIGNAL('onLog(QString)'), self.onLog)
-        QtCore.QObject.connect(self, QtCore.SIGNAL('onModify()'), self.onModify)
-        QtCore.QObject.connect(self, QtCore.SIGNAL('onUserExit(QString)'), self.onUserExit)
+    def displayBug(self, mes):
+        self.emit(QtCore.SIGNAL('onBug(QString)'), mes)
 
 
-        self.grid = QtGui.QGridLayout()
-        self.grid.setSpacing(10)
+    """
+    """
 
-        self.grid.addWidget(self.sendEdit, 4, 0)
+    """
+        handlers that modify the guy on different events/signa;s
+    """
+    def onSendClicked(self):
+		self.parse_text()
 
-        self.grid.addWidget(self.chatEdit, 1, 0)
-        self.grid.addWidget(self.onlineUsers, 1, 3, 1, 4)
+    def onSendEnterPressed(self, e):
+		self.parse_text()
 
-        self.grid.addWidget(self.sendButton, 4, 4)
+    def onAddUser(self, user):
+        icon = QtGui.QIcon('online.ico')
+        item = QtGui.QListWidgetItem(user)
+        item.setIcon(icon)
 
-        self.setLayout(self.grid)
+        self.holder.addRow(item)
 
-        self.setGeometry(300, 300, 750, 500)
-        self.setWindowTitle('Chat')
-        self.show()
+        self.holder.writeLog("user <b>" + user + "</b> is now online", self.holder.LEVEL_INFO)
 
-    def closeEvent(self, event):
-        if self.client.client != None:
-            self.client.client.send_message('#unregister ' + self.username)
+    def onNewMessage(self, user, line, color):
+        colorstr = Helpers.fontWithGivenColor(color)
 
-        event.accept()
+        printstr = colorstr + '<b>' + user + ':</b><\\font> ' + line
+        self.holder.writeMessage(printstr)
+
+    def onOkRegister(self):
+        self.holder.writeLog('registered with username <b>' + self.username + '<\b>', self.holder.LEVEL_INFO)
+
+    def onModify(self):
+        self.holder.writeLog('succesfully changed name to <b>' + self.username + '</b>', self.holder.LEVEL_INFO)
+
+        for idx in xrange(self.holder.getStatusWindow().count()):
+            item = self.holder.getStatusWindow().item(idx)
+            if item.text() == self.olduser:
+                item.setText(self.username)
+
+    def onUserExit(self, user):
+        for idx in xrange(self.holder.getStatusWindow().count()):
+            item = self.getStatusWindow().item(idx)
+            if item.text() == user:
+                self.onlineUsers.takeItem(idx)
+                return
+
+    def onError(self, mes):
+        self.holder.writeLog(mes, self.holder.LEVEL_ERR)
+
+    def onInfo(self, mes):
+        self.holder.writeLog(mes, self.holder.LEVEL_INFO)
+
+    def onWarn(self, mes):
+        self.holder.writeLog(mes, self.holder.LEVEL_WARN)
+
+    def onBug(self, mes):
+        self.holder.writeLog(mes, self.holder.LEVEL_BUG)
+
+    def onDbg(self, mes):
+        self.holder.writeLog(mes, self.holder.LEVEL_DBG)
+    """
+    """
 
 
 

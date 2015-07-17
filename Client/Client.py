@@ -22,6 +22,7 @@ class Client:
 
 		return sock
 
+	#TODO there s a bug here on error
 	def send_message(self, message):
 		try:
 			sock = self.open_socket()
@@ -31,10 +32,3 @@ class Client:
 			print "Failed to send"
 			sock.close()
 			sys.exit(1)
-
-def main():
-	None
-
-
-if __name__ == '__main__':
-    main()

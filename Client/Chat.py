@@ -36,7 +36,7 @@ class SAChat(QtGui.QWidget):
         if chatStr.startswith('#listen'):
             tokens = chatStr.split(' ')
             if len(tokens) != 3:
-                self.holder.writeLog("syntax: #listen <ip> <port>", self.holder.LEVEL_WARN)
+                self.holder.writeLog("""syntax: #listen ip port""", self.holder.LEVEL_WARN)
                 return
 
             port = int(tokens[2])
@@ -55,7 +55,7 @@ class SAChat(QtGui.QWidget):
         if chatStr.startswith('#register'):
             reg_tokens = chatStr.split(' ')
             if len(reg_tokens) != 4:
-                self.holder.writeLog("syntax: #register <user> <ip> <port>", self.holder.LEVEL_WARN)
+                self.holder.writeLog("""syntax: #register user ip port""", self.holder.LEVEL_WARN)
                 return
 
             if self.username != None:

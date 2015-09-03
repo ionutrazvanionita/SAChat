@@ -2,7 +2,6 @@ import re
 import itertools
 import nltk
 import nltk.data
-from nltk.corpus import nps_chat
 import sys
 from nltk.stem.wordnet import WordNetLemmatizer
 

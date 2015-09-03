@@ -61,11 +61,12 @@ class WidgetHolder:
     LEVEL_BUG  = 0
 
 
-    def __int__(self):
+    def __init__(self):
         self.chatWindow   = None
         self.sendButton   = None
         self.sendWindow   = None
         self.statusWindow = None
+        self.pbar_dict    = {}
 
     def setChatWindow(self, window):
         self.chatWindow = window
@@ -144,6 +145,21 @@ class WidgetHolder:
         self.statusWindow.addItem(item)
     """
     """
+
+    """
+        progress bar related functions
+        each progress bar is held inside a dictionary
+        each key of the dictionary represents a sentiment
+    """
+    def set_pbar(self, sent, pbar):
+        self.pbar_dict[sent] = pbar
+
+    def get_pbar(self, sent):
+        return self.pbar_dict[sent]
+
+    def set_pbar_value(self, sent, value):
+        self.pbar_dict[sent].setValue(int(value*100))
+
 
 
 

@@ -15,8 +15,8 @@ class SList:
     def remove(self, el):
         self.list.remove(el)
 
-	def get_list(self):
-		return self.list
+    def get_list(self):
+        return self.list
 
     def get_lock(self):
         return self.lock

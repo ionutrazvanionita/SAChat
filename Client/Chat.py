@@ -6,6 +6,7 @@ import SAClient
 import socket
 import random
 import Helpers
+import Analyzer
 
 class SAChat(QtGui.QWidget):
 
@@ -16,6 +17,7 @@ class SAChat(QtGui.QWidget):
         self.host = None
         self.client = SAClient.SAClient(None, None,None,None,self)
         self.holder = Helpers.WidgetHolder()
+        self.analyzer = Analyzer.Parser()
 
         self.initUI()
 
@@ -23,6 +25,7 @@ class SAChat(QtGui.QWidget):
         self.olduser = None
         Helpers.printHelpInfo(self.holder.getChatWindow())
         Helpers.printListenInfo(self.holder.getChatWindow())
+
 
     def display_help(self):
         Helpers.printHelpMessage(self.holder.getChatWindow())
@@ -85,10 +88,16 @@ class SAChat(QtGui.QWidget):
 
         if chatStr != '':
             if self.client.client == None:
-                self.holder.writeLog('You must register to a server with <b>#register</b>', self.holder.LEVEL_WARN)
-                return
+               self.holder.writeLog('You must register to a server with <b>#register</b>', self.holder.LEVEL_WARN)
+               return
             self.client.client.send_message('#message ' + self.username + ' ' + chatStr)
             self.holder.writeMessage("<b>You : </b> " + chatStr)
+            scores = self.analyzer.get_score_for_phrase(chatStr)
+            for s in self.analyzer.depeche_sents:
+                if s in scores:
+                    self.holder.set_pbar_value(s, scores[s])
+                else:
+                    self.holder.set_pbar_value(s, 0)
 
     def logOut(self):
         if self.client.client != None:
@@ -142,12 +151,23 @@ class SAChat(QtGui.QWidget):
         self.holder.setSendButton(QtGui.QPushButton('Send'))
 
         self.holder.getChatWindow().setReadOnly(True)
+        for s in self.analyzer.depeche_sents:
+            self.holder.set_pbar(s, QtGui.QProgressBar())
 
     def placeWidgets(self):
+        box = QtGui.QVBoxLayout()
+
+        box.addWidget(QtGui.QLabel("<b>Emotion Analyser</b>\t"))
+        for s in self.analyzer.depeche_sents:
+            box.addWidget(QtGui.QLabel(Helpers.fontWithRandColor() + "<i>" + s + "</i>"))
+            box.addWidget(self.holder.get_pbar(s))
+
+
         self.grid.addWidget(self.holder.getSendWindow(), 4, 0)
         self.grid.addWidget(self.holder.getChatWindow(), 1, 0)
-        self.grid.addWidget(self.holder.getStatusWindow(), 1, 3, 1, 4)
-        self.grid.addWidget(self.holder.getSendButton(), 4, 4)
+        self.grid.addWidget(self.holder.getStatusWindow(), 1, 1, 1, 2)
+        self.grid.addWidget(self.holder.getSendButton(), 4, 1)
+        self.grid.addLayout(box, 0, 4, 2, 4)
 
     def closeEvent(self, event):
         if self.client.client != None:
@@ -200,10 +220,10 @@ class SAChat(QtGui.QWidget):
         handlers that modify the guy on different events/signa;s
     """
     def onSendClicked(self):
-		self.parse_text()
+        self.parse_text()
 
     def onSendEnterPressed(self, e):
-		self.parse_text()
+        self.parse_text()
 
     def onAddUser(self, user):
         icon = QtGui.QIcon('online.ico')
@@ -219,6 +239,14 @@ class SAChat(QtGui.QWidget):
 
         printstr = colorstr + '<b>' + user + ':</b><\\font> ' + line
         self.holder.writeMessage(printstr)
+        scores = self.analyzer.get_score_for_phrase(str(line))
+        for s in self.analyzer.depeche_sents:
+            if s in scores:
+                self.holder.set_pbar_value(s, scores[s])
+            else:
+                self.holder.set_pbar_value(s, 0)
+
+
 
     def onOkRegister(self):
         self.holder.writeLog('registered with username <b>' + self.username + '<\b>', self.holder.LEVEL_INFO)
@@ -233,9 +261,9 @@ class SAChat(QtGui.QWidget):
 
     def onUserExit(self, user):
         for idx in xrange(self.holder.getStatusWindow().count()):
-            item = self.getStatusWindow().item(idx)
+            item = self.holder.getStatusWindow().item(idx)
             if item.text() == user:
-                self.onlineUsers.takeItem(idx)
+                self.getStatusWindow().takeItem(idx)
                 return
 
     def onError(self, mes):

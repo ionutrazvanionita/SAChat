@@ -126,7 +126,7 @@ class Client(threading.Thread):
                         self.lst.remove(el)
                         self.lst.add(new_el)
 
-                        self.sendmessage(host, port, '#modifyok')
+                        self.send_message(host, port, '#modifyok')
                     else:
                         self.send_message(host, port, data)
             else:

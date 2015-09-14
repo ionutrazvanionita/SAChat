@@ -26,12 +26,21 @@ class SAChat(QtGui.QWidget):
         Helpers.printHelpInfo(self.holder.getChatWindow())
         Helpers.printListenInfo(self.holder.getChatWindow())
 
+        self.command_hist = []
+        self.command_idx = 0
+
 
     def display_help(self):
         Helpers.printHelpMessage(self.holder.getChatWindow())
 
     def parse_text(self):
         chatStr = self.holder.getWrittenMessageAndClear()
+        if len(self.command_hist) == 10:
+            self.command_hist = self.command_hist[1:]
+
+        self.command_hist.append(str(chatStr))
+        self.command_idx = len(self.command_hist) - 1
+
         if chatStr.startswith('#help'):
             self.display_help()
             return
@@ -61,19 +70,25 @@ class SAChat(QtGui.QWidget):
                 self.holder.writeLog("""syntax: #register user ip port""", self.holder.LEVEL_WARN)
                 return
 
-            if self.username != None:
-                self.holder.writeLog("changing username to <b>" +reg_tokens[1] + "</b>", self.holder.LEVEL_INFO)
-                mes = '#modify ' + self.username + ' ' + reg_tokens[1]
-                self.olduser = self.username
-                self.username = reg_tokens[1]
-            else:
-                mes = reg_tokens[0] + ' ' + reg_tokens[1]
-                mes += ' ' + self.host + ' ' + str(self.port)
-                self.username = reg_tokens[1]
+            if  self.client.server == None:
+                self.holder.writeLog("""must set listening interface first with #listen""", self.holder.LEVEL_ERR)
+                return
 
+
+            mes = reg_tokens[0] + ' ' + reg_tokens[1]
+            mes += ' ' + self.host + ' ' + str(self.port)
+            self.olduser = self.username
+            self.username = reg_tokens[1]
+
+            if self.username == self.olduser:
+                self.onError('New username must differ from old one')
+                return
 
             self.client.init_client(reg_tokens[2], int(reg_tokens[3]))
-            self.client.send_message(mes)
+            err,mes = self.client.send_message(mes)
+
+            if err == False:
+                self.onError(mes)
 
             return
         if chatStr.startswith('#logout'):
@@ -86,11 +101,29 @@ class SAChat(QtGui.QWidget):
             self.holder.writeLog("Type #help for list of available commands", self.holder.LEVEL_INFO)
             return
 
+        if chatStr.startswith('#exit') or chatStr.startswith('#quit'):
+            if self.client.client != None:
+                err,mess = self.client.client.send_message('#unregister ' + self.username)
+                if err == False:
+                    self.onError(mes)
+                    return
+
+            if self.client.server != None:
+                self.client.server.stop_server()
+
+            QtCore.QCoreApplication.instance().quit()
+
+            return
+
         if chatStr != '':
             if self.client.client == None:
                self.holder.writeLog('You must register to a server with <b>#register</b>', self.holder.LEVEL_WARN)
                return
-            self.client.client.send_message('#message ' + self.username + ' ' + chatStr)
+            err,mes = self.client.client.send_message('#message ' + self.username + ' ' + chatStr)
+            if err == False:
+                self.onError(mes)
+                return
+
             self.holder.writeMessage("<b>You : </b> " + chatStr)
             scores = self.analyzer.get_score_for_phrase(chatStr)
             for s in self.analyzer.depeche_sents:
@@ -101,7 +134,10 @@ class SAChat(QtGui.QWidget):
 
     def logOut(self):
         if self.client.client != None:
-            self.client.client.send_message('#unregister ' + self.username)
+            err,mess = self.client.client.send_message('#unregister ' + self.username)
+            if err == False:
+                self.onError(mes)
+                return
             self.holder.clearStatusWindow()
             self.client.client = None
             self.holder.writeLog('Succesfully logged out', self.holder.LEVEL_INFO)
@@ -131,11 +167,14 @@ class SAChat(QtGui.QWidget):
     def initSignals(self):
         QtCore.QObject.connect(self.holder.getSendButton(), QtCore.SIGNAL('clicked()'), self.onSendClicked)
         QtCore.QObject.connect(self.holder.getSendWindow(), QtCore.SIGNAL('returnPressed'), self.onSendClicked)
+        QtCore.QObject.connect(self.holder.getSendWindow(), QtCore.SIGNAL('upPressed'), self.onUpArrow)
+        QtCore.QObject.connect(self.holder.getSendWindow(), QtCore.SIGNAL('downPressed'), self.onDownArrow)
         QtCore.QObject.connect(self, QtCore.SIGNAL('onAddUser(QString)'), self.onAddUser)
         QtCore.QObject.connect(self, QtCore.SIGNAL('onNewMessage(QString, QString, QString)'), self.onNewMessage)
         QtCore.QObject.connect(self, QtCore.SIGNAL('onOkRegister()'), self.onOkRegister)
         QtCore.QObject.connect(self, QtCore.SIGNAL('onModify()'), self.onModify)
         QtCore.QObject.connect(self, QtCore.SIGNAL('onUserExit(QString)'), self.onUserExit)
+        QtCore.QObject.connect(self, QtCore.SIGNAL('onServerExit()'), self.onServerExit)
 
         #log signals
         QtCore.QObject.connect(self, QtCore.SIGNAL('onErr(QString)'), self.onError)
@@ -171,7 +210,12 @@ class SAChat(QtGui.QWidget):
 
     def closeEvent(self, event):
         if self.client.client != None:
-            self.client.client.send_message('#unregister ' + self.username)
+            err, mes = self.client.client.send_message('#unregister ' + self.username)
+            if err == False:
+                self.onError(mes)
+                return
+        if self.client.server:
+            self.client.server.stop_server()
 
         event.accept()
 
@@ -187,6 +231,9 @@ class SAChat(QtGui.QWidget):
 
     def remove_user(self, user):
         self.emit(QtCore.SIGNAL('onUserExit(QString)'), user)
+
+    def remove_all(self):
+        self.emit(QtCore.SIGNAL('onServerExit()'))
 
     def display_line(self, user, line, color):
         self.emit(QtCore.SIGNAL('onNewMessage(QString,QString,QString)'), user, line, color)
@@ -222,6 +269,18 @@ class SAChat(QtGui.QWidget):
     def onSendClicked(self):
         self.parse_text()
 
+    def onUpArrow(self):
+        if len(self.command_hist) == 0:
+            return
+
+        self.holder.getSendWindow().setText(self.command_hist[self.command_idx])
+        if self.command_idx <= 0:
+            self.command_idx = len(self.command_hist) - 1
+        self.command_idx -= 1
+
+    def onDownArrow(self):
+        self.holder.getSendWindow().clear()
+
     def onSendEnterPressed(self, e):
         self.parse_text()
 
@@ -232,7 +291,8 @@ class SAChat(QtGui.QWidget):
 
         self.holder.addRow(item)
 
-        self.holder.writeLog("user <b>" + user + "</b> is now online", self.holder.LEVEL_INFO)
+        if user != self.username:
+            self.holder.writeLog("user <b>" + user + "</b> is now online", self.holder.LEVEL_INFO)
 
     def onNewMessage(self, user, line, color):
         colorstr = Helpers.fontWithGivenColor(color)
@@ -263,8 +323,12 @@ class SAChat(QtGui.QWidget):
         for idx in xrange(self.holder.getStatusWindow().count()):
             item = self.holder.getStatusWindow().item(idx)
             if item.text() == user:
-                self.getStatusWindow().takeItem(idx)
+                self.holder.getStatusWindow().takeItem(idx)
                 return
+
+    def onServerExit(self):
+        self.holder.getStatusWindow().clear()
+        self.holder.writeLog("Server stopped", self.holder.LEVEL_INFO)
 
     def onError(self, mes):
         self.holder.writeLog(mes, self.holder.LEVEL_ERR)
@@ -293,6 +357,13 @@ class SendLineEdit(QtGui.QLineEdit):
         if (event.type()==QtCore.QEvent.KeyPress) and (event.key()==QtCore.Qt.Key_Return):
             self.emit(QtCore.SIGNAL('returnPressed'))
             return True
+
+        if (event.type()==QtCore.QEvent.KeyPress) and (event.key()==QtCore.Qt.Key_Up):
+            self.emit(QtCore.SIGNAL('upPressed'))
+            return True
+
+        if (event.type()==QtCore.QEvent.KeyPress) and (event.key()==QtCore.Qt.Key_Down):
+            self.emit(QtCore.SIGNAL('downPressed'))
 
         return QtGui.QLineEdit.event(self, event)
 

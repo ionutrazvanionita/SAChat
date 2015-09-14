@@ -85,10 +85,23 @@ class Client(threading.Thread):
     def process_data(self, data):
         #registration request
         if data.startswith('#register'):
-        #simple message
+            #check if user changed his name
+            tokens = data.split(' ')
+            for i in xrange(len(self.lst.list)):
+                name,host,port,color = self.lst.list[i]
+                if host == tokens[2] and port == int(tokens[3]):
+                    del self.lst.list[i]
+                    self.lst.add((tokens[1],host,port,color))
+                    with self.lock:
+                        self.gui.remove_user(name)
+                        self.gui.display_user(tokens[1])
+                        self.gui.displayInfo("user <b>" + name + "</b> changed name to <b>" + tokens[1] + "</b>")
+
+                        return
+
+
             userColor =Helpers.genSixDigitHex()
 
-            tokens = data.split(' ')
             with self.lst.get_lock():
                 self.lst.add((tokens[1],tokens[2], int(tokens[3]), userColor))
             if self.gui != None:
@@ -96,7 +109,7 @@ class Client(threading.Thread):
                     self.gui.display_user(tokens[1])
 
         elif data.startswith('#message'):
-            # #message user message
+            #message user message
             new_tokens = data.split(' ')
             if self.gui != None:
                 user = new_tokens[1]
@@ -130,17 +143,25 @@ class Client(threading.Thread):
                 with self.lst.get_lock():
                     self.lst.add((utoks[0], utoks[1], utoks[2], ucolor))
 
-                with self.lock:
-                    self.gui.display_user(utoks[0])
+                if utoks[0] != self.gui.username:
+                    with self.lock:
+                        self.gui.display_user(utoks[0])
 
 
         elif data.startswith('#modifyok'):
             with self.lock:
                 self.gui.display_modify()
+
         elif data.startswith('#modifyfail'):
-            pass
+            err_toks = data.split(' ')
+            with self.lock:
+                self.gui.displayErr(err_toks[1])
+
         elif data.startswith('#addfail'):
-            pass
+            err_toks = data.split(' ')
+
+            with self.lock:
+                self.gui.displayErr(err_toks[1])
         elif data.startswith('#unregister'):
             unreg_toks = data.split(' ')
 
@@ -152,6 +173,9 @@ class Client(threading.Thread):
                         with self.lock:
                             self.gui.displayInfo('user <b>' + unreg_toks[1] + '</b> exited')
                             self.gui.remove_user(unreg_toks[1])
+
+        elif data.startswith('#terminated'):
+            self.gui.remove_all()
 
         else:
             with self.gui.lock:

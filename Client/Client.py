@@ -9,6 +9,7 @@ class Client:
     def __init__(self, remote, port):
         self.remote = remote
         self.port = port
+        self.sock = None
 
     def set_host(self, host):
         self.host = host
@@ -17,18 +18,17 @@ class Client:
         self.port = port
 
     def open_socket(self):
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.connect((self.remote, self.port))
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.sock.connect((self.remote, self.port))
 
-        return sock
+        return self.sock
 
-    #TODO there s a bug here on error
     def send_message(self, message):
         try:
-            sock = self.open_socket()
-            sock.sendall(message)
-            sock.close()
+            self.sock = self.open_socket()
+            self.sock.sendall(message)
+            self.sock.close()
+            return (True, '')
         except socket.error, (value, message):
-            print "Failed to send"
-            sock.close()
-            sys.exit(1)
+            self.sock.close()
+            return (False, message)

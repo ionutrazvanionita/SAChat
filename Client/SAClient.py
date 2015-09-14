@@ -5,7 +5,6 @@
 
 import Server
 import Client
-import Queue
 import socket
 from SynchronizedList import SList
 import sys

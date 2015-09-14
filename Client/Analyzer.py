@@ -20,6 +20,10 @@ class Parser:
         self.sent_maxes = {}
         self.sent_mins = {}
 
+        self.base_dict = {}
+        self.read_depeche_into_dict()
+        self.read_base_into_dict()
+
     """
         split a paragraph into sentences using nltk punkt
         @param1 paragraph to be parsed
@@ -59,6 +63,14 @@ class Parser:
                 new_lst.append((WordNetLemmatizer().lemmatize(word, 'n'), 'n'))
 
         return new_lst
+
+    def get_verb_simple_form(self, word):
+        new_word = WordNetLemmatizer().lemmatize(word,'v')
+        if new_word != word:
+            return new_word
+
+        return None
+
 
     """
         for a given pos prints info about
@@ -206,6 +218,37 @@ class Parser:
         return re.sub(r'(.)\1+', r'\1', word)
 
 
+    def read_base_into_dict(self):
+        with open("base_words/tagged") as f:
+            lines = f.readlines()
+
+        for line in lines:
+            toks = line.split('#')
+            word = toks[0]
+
+            sent = ''
+            if toks[1][0] == 'A':
+                sent = 'afraid'
+            if toks[1][0] == 'M':
+                sent = 'amused'
+            if toks[1][0] == 'N':
+                sent = 'angry'
+            if toks[1][0] == 'Y':
+                sent = 'annoyed'
+            if toks[1][0] == 'D':
+                sent = 'don\'t care'
+            if toks[1][0] == 'H':
+                sent = 'happy'
+            if toks[1][0] == 'I':
+                sent = 'inspired'
+            if toks[1][0] == 'S':
+                sent = 'sad'
+
+            new_word = self.get_verb_simple_form(word)
+            self.base_dict[word] = sent
+            if new_word != None:
+                self.base_dict[new_word] = sent
+
     def read_depeche_into_dict(self):
         with open("depeche/lexicon", "r") as f:
             lines = f.readlines()
@@ -244,25 +287,85 @@ class Parser:
             (summ, count) = self.sent_averages[s]
             self.sent_averages[s] = summ/count
 
+    def get_base_score(self, lst):
+        score_dict = {}
+
+        for i in xrange(len(lst)):
+            word, pos = lst[i]
+            if word in self.base_dict:
+                sentiment = self.base_dict[word]
+                if i > 0:
+                    pword,ppos = lst[i-1]
+                    if pword == 'not':
+                        if sentiment == 'afraid':
+                            sentiment = 'inspired'
+                        elif sentiment == 'amused':
+                            sentiment = 'annoyed'
+                        elif sentiment == 'angry':
+                            sentiment = 'happy'
+                        elif sentiment == 'annoyed':
+                            sentiment = 'amused'
+                        elif sentiment == 'don\'t care':
+                            sentiment = 'inspired'
+                        elif sentiment == 'happy':
+                            sentiment = 'sad'
+                        elif sentiment == 'inspired':
+                            sentiment = 'afraid'
+                        elif sentiment == 'sad':
+                            sentiment = 'happy'
+
+                if not sentiment in score_dict:
+                    score_dict[sentiment] = 1
+                else:
+                    score_dict[sentiment] += 1
+
+
+        if score_dict == {}:
+            return None
+
+        maxval = max(score_dict.values())
+        print maxval
+        for s in self.depeche_sents:
+            if s in score_dict:
+                score_dict[s] = float(score_dict[s])/maxval
+
+        return score_dict
+
 
     def get_depeche_score(self, lst):
         score_dict = {}
-        for (word, pos) in lst:
+        for i in xrange(len(lst)):
+            word, pos = lst[i]
             if word in self.depeche_dict and pos in self.depeche_dict[word]:
-                for key in self.depeche_dict[word][pos]:
+                snt_dict = self.depeche_dict[word][pos]
+                if i > 0:
+                    pword,ppos = lst[i-1]
+                    if pword == 'not':
+                        for key in snt_dict:
+                            if snt_dict[key] == 'afraid':
+                                snt_dict[key] = 'inspired'
+                            elif snt_dict[key] == 'amused':
+                                snt_dict[key] = 'annoyed'
+                            elif snt_dict[key] == 'angry':
+                                snt_dict[key] = 'happy'
+                            elif snt_dict[key] == 'annoyed':
+                                snt_dict[key] = 'amused'
+                            elif snt_dict[key] == 'don\'t care':
+                                snt_dict[key] = 'inspired'
+                            elif snt_dict[key] == 'happy':
+                                snt_dict[key] = 'sad'
+                            elif snt_dict[key] == 'inspired':
+                                snt_dict[key] = 'afraid'
+                            elif snt_dict[key] == 'sad':
+                                snt_dict[key] = 'happy'
+
+                for key in snt_dict:
                     if not key in score_dict:
-                        score_dict[key] = (self.depeche_dict[word][pos][key], 1)
-                        self.sent_mins[key] = self.depeche_dict[word][pos][key]
-                        self.sent_maxes[key] = self.depeche_dict[word][pos][key]
+                        score_dict[key] = (snt_dict[key], 1)
                     else:
                         (value, no) = score_dict[key]
-                        score_dict[key] = (value + self.depeche_dict[word][pos][key], no+1)
+                        score_dict[key] = (value + snt_dict[key], no+1)
 
-                        #find the mins and maxes for each value
-                        if self.depeche_dict[word][pos][key] > self.sent_maxes[key]:
-                            self.sent_maxes[key] = self.depeche_dict[word][pos][key]
-                        if self.depeche_dict[word][pos][key] < self.sent_mins[key]:
-                            self.sent_mins[key] = self.depeche_dict[word][pos][key]
 
         for key in score_dict:
             (score, number) = score_dict[key]
@@ -270,10 +373,7 @@ class Parser:
         return score_dict
 
     def get_score_for_phrase(self, sent):
-        if not self.depeche_dict:
-            self.read_depeche_into_dict()
-
-        words = sent.split(' ')
+        words = nltk.word_tokenize(sent)
         nwords = []
         for word in words:
             word=self.make_subst(word)
@@ -283,20 +383,24 @@ class Parser:
 
         poses = self.pos_tag(sent)
         dposes =self.transform_to_depeche_tags(poses)
+        scores = self.get_base_score(dposes)
+        if scores == None:
+            scores = self.get_depeche_score(dposes)
 
-        scores = self.get_depeche_score(dposes)
+            #normalize based on the average score of all words
+            maxx = 0
+            minn = 1
+            for s in self.depeche_sents:
+                if s in scores and scores[s] < minn:
+                    minn = scores[s]
+                if s in scores and scores[s] > maxx:
+                    maxx = scores[s]
 
-        #normalize based on the average score of all words
-        maxx = 0
-        minn = 1
-        for s in self.depeche_sents:
-            if s in scores and scores[s] < minn:
-                minn = scores[s]
-            if s in scores and scores[s] > maxx:
-                maxx = scores[s]
-
-        for s in self.depeche_sents:
-            if s in scores:
-                scores[s] = (scores[s] - minn)/(maxx-minn)
+            for s in self.depeche_sents:
+                if s in scores:
+                    scores[s] = (scores[s] - minn)/(maxx-minn)
 
         return scores
+
+#myparser = Parser()
+#print myparser.get_score_for_phrase('do terrorism')

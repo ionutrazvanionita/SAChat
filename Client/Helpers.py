@@ -3,6 +3,7 @@ __author__ = 'ionut'
 from PyQt4 import QtGui, QtCore
 from random import randint
 
+
 helpInfo = "Type #help for list of available commands"
 helpMessage = """#help
     #register <user> <remote_host> <remote_port> - connect to chat server")
@@ -32,13 +33,14 @@ def genSixDigitHex():
     b = randint(0, 255)
     if r < 16:
         pad='0'
+    elif r == 0:
+        pad='00'
     else:
         pad=''
 
     color = 0
     color = (r<<16) + (g<<8) + b
-    hexcolor = hex(color)[2:]
-    return pad + str(hexcolor)
+    return pad + str(hex(color)[2:])
 
 def fontWithRandColor():
     return fontWithGivenColor(genSixDigitHex())

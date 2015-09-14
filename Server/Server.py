@@ -27,7 +27,7 @@ class Server(threading.Thread):
         except socket.error, (value, message):
             if self.server:
                 self.server.close()
-            print "Could not open socket: " + message
+            print "ERROR: Could not open socket: " + message
             sys.exit(1)
 
     def run(self):
@@ -50,7 +50,20 @@ class Server(threading.Thread):
         self.server.close()
         for c in self.threads:
             c.join()
-        print "Terminated"
+
+
+        for name, host, port in self.list.get_list():
+            sock = None
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.connect((host, port))
+                sock.sendall('#terminated')
+                sock.close()
+            except socket.error, (value, message):
+                print 'ERROR: [' + host + ':' + str(port) + ']' + message
+                sock.close()
+
+        print "INFO: Server stopped"
 
 class Client(threading.Thread):
     def __init__(self, (client,address), lst):
@@ -72,7 +85,7 @@ class Client(threading.Thread):
         if data.startswith('#register'):
             reg_tokens = data.split(' ')
             if len(reg_tokens) < 4:
-                print 'Fatal Error! Invalid message'
+                print 'ERROR: Fatal Error! Invalid message'
                 return
 
             sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -82,23 +95,42 @@ class Client(threading.Thread):
 
             for name, host, port in self.lst.get_list():
                 if name == reg_tokens[1]:
-                    self.lst.unlock_list()
                     sock.sendall('#addfail already a user with this name')
                     sock.close()
+                    print 'ERROR: username ' + reg_tokens[1] + ' already registered'
                     return
+
+                if host == reg_tokens[2] and port == int(reg_tokens[3]):
+                    for i, (dname,dhost,dport) in enumerate(self.lst.get_list()):
+                        if dname == name and dport == port and dhost == host:
+                            del self.lst.get_list()[i]
+
+                    sock.sendall('#modifyok')
+                    sock.close()
+
+                    for nname,nhost,nport in self.lst.get_list():
+                        self.send_message(nhost,nport,data)
+
+                    self.lst.add((reg_tokens[1], host, port))
+
+                    self.lst.unlock_list()
+                    return
+
+
+
 
             self.lst.unlock_list()
 
             self.lst.add((reg_tokens[1], reg_tokens[2], int(reg_tokens[3])))
 
             ret_mes = '#addok'
+            print 'INFO: succesfully added user ' + reg_tokens[1]
+
             self.lst.lock_list()
             for name, host, port in self.lst.get_list():
-                if name == reg_tokens[1]:
-                    continue
-
-                ret_mes += '\n' + name + ' ' + host + ' ' + str(port)
-                self.send_message(host, port, data)
+                if not name.startswith(reg_tokens[1]):
+                    ret_mes += '\n' + name + ' ' + host + ' ' + str(port)
+                    self.send_message(host, port, data)
 
             self.lst.unlock_list()
 
@@ -122,17 +154,20 @@ class Client(threading.Thread):
                     name, host, port = el
                     if name == oname:
                         new_el = nname, host, port
-                        self.lst.unlock_list()
                         self.lst.remove(el)
                         self.lst.add(new_el)
 
                         self.send_message(host, port, '#modifyok')
+                        print 'INFO: Succesfully changed name from [' + oname + '] to [' + nname + '] listening on [' + host + ':' + str(port) + ']'
                     else:
                         self.send_message(host, port, data)
+
             else:
                 for name,host,port in self.lst.get_list():
                     if name == oname:
                         self.send_message(host, port, ret_mes)
+
+                print 'ERROR: ' + ret_mes
 
             self.lst.unlock_list()
 
@@ -141,6 +176,7 @@ class Client(threading.Thread):
         elif data.startswith('#message'):
             mes_tokens = data.split(' ')
             if len(mes_tokens) < 2:
+                print 'ERROR: invalid #message format'
                 return None
 
             self.lst.lock_list()
@@ -149,6 +185,8 @@ class Client(threading.Thread):
                 if name == mes_tokens[1]:
                     continue
                 self.send_message(host, port, data)
+
+            print 'DBG: received message from [' + mes_tokens[1] + ']'
 
             self.lst.unlock_list()
 
@@ -160,25 +198,40 @@ class Client(threading.Thread):
             for el in self.lst.get_list():
                 name, host, port = el
                 if name == ureg_toks[1]:
-                    self.lst.unlock_list()
                     self.lst.remove(el)
-                    self.lst.lock_list()
                 else:
                     self.send_message(host, port, data)
 
             self.lst.unlock_list()
+
+            print 'INFO: user [' + ureg_toks[1] + '] leaved the room'
+
         else:
-            print 'Unknown message'
+            print 'ERROR: Unknown message'
 
     def send_message(self, host, port, message):
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.connect((host, port))
-        sock.sendall(message)
-        sock.close()
+        sock = None
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.connect((host, port))
+            sock.sendall(message)
+            sock.close()
+        except socket.error, (value, message):
+            print 'ERROR: [' + host + ':' + str(port) + ']' + message
+            sock.close()
 
 
 def main():
-    server = Server(sys.argv[1], int(sys.argv[2]))
+    host = '127.0.0.1'
+    port = 8001
+    if len(sys.argv) > 1:
+        host = sys.argv[1]
+        if len(sys.argv) > 1:
+            port = int(sys.argv[2])
+
+    print 'Server started! Running on ' + host + ':' + str(port)
+
+    server = Server(host, port)
     server.start()
 
 
